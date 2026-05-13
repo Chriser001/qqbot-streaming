@@ -1,0 +1,12 @@
+name: qqbot-streaming
+label: QQ Bot Streaming (Typewriter)
+kind: platform
+version: 1.0.0
+description: |
+  Adds native QQ typewriter (打字机) streaming support via QQ Bot stream_messages API.
+  Overrides QQ Bot message delivery to use QQ's native stream-based typewriter effect
+  — fundamentally different from Telegram/Discord edit_message pattern.
+  All QQ messages render progressively character-by-character in the QQ client.
+author: hermes
+requires_env: []
+provides_tools: []
