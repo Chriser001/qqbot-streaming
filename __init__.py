@@ -31,6 +31,15 @@ _stream_states: Dict[str, Dict[str, Any]] = {}
 _original_send = None
 _DEFAULT_API_TIMEOUT = 30.0
 
+# Plugin-level monotonic msg_seq counter — avoids collisions with
+# the adapter's random-based _next_msg_seq() on API-dedup checks.
+_msg_seq_counter = 0
+
+def _next_plugin_seq() -> int:
+    global _msg_seq_counter
+    _msg_seq_counter = (_msg_seq_counter + 1) % 65536
+    return _msg_seq_counter
+
 _CURSORS = re.compile(r"[▉█]$")
 
 
@@ -81,7 +90,9 @@ async def _send_stream_chunk(
     }
     if use_markdown:
         body["msg_type"] = 2
-        body["markdown"] = {"content": content}
+        # QQ Bot API requires markdown stream chunks to end with \n
+        markdown_content = content if content.endswith('\n') else content + '\n'
+        body["markdown"] = {"content": markdown_content}
     else:
         body["msg_type"] = 0
         body["content"] = content
@@ -114,7 +125,7 @@ async def _patched_send(
         return await _original_send(self, chat_id, content, reply_to, metadata)
 
     chat_type = self._guess_chat_type(chat_id)
-    msg_seq = self._next_msg_seq(chat_id)
+    msg_seq = _next_plugin_seq()
     displayed = _strip_cursor(content)
 
     logger.info("QQ stream START: chat=%s type=%s len=%d", chat_id, chat_type, len(displayed))
@@ -146,14 +157,11 @@ async def _patched_edit_message(
 ) -> SendResult:
     state = _stream_states.get(message_id)
     if state is None:
-        logger.debug("QQ edit: stream state not found for %s, bridging", message_id)
-        chat_type = self._guess_chat_type(chat_id)
-        state = {
-            "chat_id": chat_id, "chat_type": chat_type,
-            "msg_seq": self._next_msg_seq(chat_id),
-            "delta_index": 0, "last_full": "",
-        }
-        _stream_states[message_id] = state
+        # Stream already finalized or never created — this edit targets
+        # a stale / previous message.  Silently skip; returning success
+        # prevents the StreamConsumer from entering a 30s retry storm
+        # with ever-growing delta content.
+        return SendResult(success=True)
 
     full_text = _strip_cursor(content)
 
@@ -173,6 +181,8 @@ async def _patched_edit_message(
         if result.success:
             _stream_states.pop(message_id, None)
             logger.info("QQ stream DONE: server_id=%s chunks=%d", message_id, state.get("delta_index", 1))
+        else:
+            logger.warning("QQ stream FINALIZE FAILED: msg_id=%s idx=%d state=10 — stream may be left hanging", message_id, state.get("delta_index", 1))
         return result
     else:
         # Intermediate: send ONLY the new delta since last send
@@ -195,6 +205,9 @@ async def _patched_edit_message(
             state["delta_index"] = idx + 1
             state["msg_seq"] += 1
             state["last_full"] = full_text  # track full accumulated text
+        else:
+            logger.warning("QQ stream DELTA FAILED: msg_id=%s idx=%d len=%d — edit_interval=%.1fs may cause retry delay",
+                           message_id, idx, len(delta_text), getattr(self, '_current_edit_interval', 0.8))
         return result
 
 
