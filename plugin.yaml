@@ -1,12 +1,15 @@
 name: qqbot-streaming
 label: QQ Bot Streaming (Typewriter)
 kind: platform
-version: 1.0.0
+version: 1.1.0
 description: |
-  Adds native QQ typewriter (打字机) streaming support via QQ Bot stream_messages API.
-  Overrides QQ Bot message delivery to use QQ's native stream-based typewriter effect
-  — fundamentally different from Telegram/Discord edit_message pattern.
-  All QQ messages render progressively character-by-character in the QQ client.
+  Adds native QQ typewriter (打字机) streaming support via the official
+  QQ Bot stream_messages API (POST /v2/users/{openid}/stream_messages, C2C).
+  Overrides QQ Bot message delivery to use QQ's native stream-based typewriter
+  effect — fundamentally different from Telegram/Discord edit_message pattern.
+  All QQ C2C messages render progressively character-by-character in the QQ
+  client. Group chat has no official streaming endpoint and falls back to
+  normal non-streaming send.
 author: hermes
 requires_env: []
 provides_tools: []
